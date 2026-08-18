@@ -73,6 +73,10 @@ func run() error {
 	}
 	logger.Info("database schema up to date", "migrations_applied", len(applied))
 
+	if err := db.VerifyEmbeddingDimensions(ctx, pool, cfg.AI.EmbeddingDimensions); err != nil {
+		return err
+	}
+
 	// Redis, HTTP server, and workers are wired in here as the corresponding packages
 	// under internal/ are implemented.
 	logger.Info("flowcast backend scaffold ready; no http server yet")

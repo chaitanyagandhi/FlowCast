@@ -157,11 +157,20 @@ func TestMigrateAppliesEverythingThenIsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, applied)
 
-	versions := make([]string, len(applied))
-	for i, a := range applied {
-		versions[i] = a.Version
+	// Compare against what is on disk rather than a hardcoded list, so adding a
+	// migration does not break this test.
+	all, err := loadMigrations(migrations.FS)
+	require.NoError(t, err)
+
+	want := make([]string, len(all))
+	for i, m := range all {
+		want[i] = m.Version
 	}
-	require.Equal(t, []string{"0001", "0002"}, versions)
+	got := make([]string, len(applied))
+	for i, a := range applied {
+		got[i] = a.Version
+	}
+	require.Equal(t, want, got, "every migration should be applied, in order")
 
 	// A second run has nothing to do.
 	again, err := Migrate(ctx, pool, migrations.FS, discardLogger())
@@ -261,6 +270,10 @@ func TestMigrateIsSafeUnderConcurrency(t *testing.T) {
 	}
 	wg.Wait()
 
+	all, err := loadMigrations(migrations.FS)
+	require.NoError(t, err)
+
 	require.NoError(t, failure)
-	require.Equal(t, 2, total, "each migration must be applied exactly once in total")
+	require.Equal(t, len(all), total,
+		"each migration must be applied exactly once across all racers")
 }
