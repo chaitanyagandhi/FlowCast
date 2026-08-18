@@ -14,6 +14,7 @@ import (
 
 	"github.com/chaitanyagandhi/flowcast/backend/internal/config"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/db"
+	"github.com/chaitanyagandhi/flowcast/backend/migrations"
 )
 
 // version identifies the build. It is overridden at release time via
@@ -63,6 +64,14 @@ func run() error {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
 	defer pool.Close()
+
+	// Migrations run at startup and serialise on an advisory lock, so starting several
+	// instances at once is safe.
+	applied, err := db.Migrate(ctx, pool, migrations.FS, logger)
+	if err != nil {
+		return fmt.Errorf("running migrations: %w", err)
+	}
+	logger.Info("database schema up to date", "migrations_applied", len(applied))
 
 	// Redis, HTTP server, and workers are wired in here as the corresponding packages
 	// under internal/ are implemented.
