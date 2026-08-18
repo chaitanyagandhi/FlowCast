@@ -30,10 +30,4 @@ import (
 
 	// AI provider SDK.
 	_ "github.com/openai/openai-go/v3"
-
-	// Local .env loading for development.
-	_ "github.com/joho/godotenv"
-
-	// Test assertions.
-	_ "github.com/stretchr/testify/require"
 )
