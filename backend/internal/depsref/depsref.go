@@ -14,8 +14,7 @@ import (
 	_ "github.com/go-chi/chi/v5"
 	_ "github.com/go-chi/cors"
 
-	// PostgreSQL driver and pgvector support.
-	_ "github.com/jackc/pgx/v5"
+	// pgvector support for embedding columns.
 	_ "github.com/pgvector/pgvector-go"
 
 	// Redis client for queues and idempotency.

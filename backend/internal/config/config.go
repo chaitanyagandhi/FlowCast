@@ -12,6 +12,11 @@ import (
 // hash output add no security, so anything below this is a misconfiguration.
 const minJWTSecretLength = 32
 
+// maxDatabaseConns is an upper bound on the pool size. It is far above anything this
+// system needs and exists to catch a fat-fingered value before pgx has to widen it to an
+// int32.
+const maxDatabaseConns = 1000
+
 // Config is the fully resolved, validated configuration for the FlowCast backend. It is
 // built once at startup and passed down by value or pointer; nothing reads the environment
 // after Load returns.
@@ -37,7 +42,10 @@ type ServerConfig struct {
 
 // DatabaseConfig describes the PostgreSQL connection and pool sizing.
 type DatabaseConfig struct {
-	URL             string
+	URL string
+	// ConnectTimeout bounds the startup connectivity check, which retries while
+	// PostgreSQL is still booting.
+	ConnectTimeout  time.Duration
 	MaxConns        int
 	MinConns        int
 	MaxConnLifetime time.Duration
@@ -112,6 +120,7 @@ func Load() (*Config, error) {
 		},
 		Database: DatabaseConfig{
 			URL:             r.requiredStr("FLOWCAST_DATABASE_URL"),
+			ConnectTimeout:  r.duration("FLOWCAST_DATABASE_CONNECT_TIMEOUT", 15*time.Second),
 			MaxConns:        r.intVal("FLOWCAST_DATABASE_MAX_CONNS", 10),
 			MinConns:        r.intVal("FLOWCAST_DATABASE_MIN_CONNS", 2),
 			MaxConnLifetime: r.duration("FLOWCAST_DATABASE_MAX_CONN_LIFETIME", time.Hour),
@@ -170,9 +179,12 @@ func (c *Config) validateDatabase(r *reader) {
 			r.add("FLOWCAST_DATABASE_URL", err.Error())
 		}
 	}
-	if c.Database.MaxConns < 1 {
+	if c.Database.ConnectTimeout <= 0 {
+		r.add("FLOWCAST_DATABASE_CONNECT_TIMEOUT", "must be a positive duration")
+	}
+	if c.Database.MaxConns < 1 || c.Database.MaxConns > maxDatabaseConns {
 		r.add("FLOWCAST_DATABASE_MAX_CONNS", fmt.Sprintf(
-			"must be at least 1; got %d", c.Database.MaxConns))
+			"must be between 1 and %d; got %d", maxDatabaseConns, c.Database.MaxConns))
 	}
 	if c.Database.MinConns < 0 {
 		r.add("FLOWCAST_DATABASE_MIN_CONNS", fmt.Sprintf(

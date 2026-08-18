@@ -6,12 +6,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 
 	"github.com/chaitanyagandhi/flowcast/backend/internal/config"
+	"github.com/chaitanyagandhi/flowcast/backend/internal/db"
 )
 
 // version identifies the build. It is overridden at release time via
@@ -28,6 +30,8 @@ func main() {
 }
 
 func run() error {
+	ctx := context.Background()
+
 	// Bootstrap logger, used until the configured log level is known.
 	logger := newLogger(slog.LevelInfo)
 	slog.SetDefault(logger)
@@ -54,9 +58,15 @@ func run() error {
 	// Safe to log: Config redacts every secret through slog.LogValuer.
 	logger.Info("configuration loaded", "config", cfg)
 
-	// Database, Redis, HTTP server, and workers are wired in here as the corresponding
-	// packages under internal/ are implemented.
-	logger.Info("flowcast backend scaffold ready; no services wired yet")
+	pool, err := db.Connect(ctx, cfg.Database, logger)
+	if err != nil {
+		return fmt.Errorf("connecting to database: %w", err)
+	}
+	defer pool.Close()
+
+	// Redis, HTTP server, and workers are wired in here as the corresponding packages
+	// under internal/ are implemented.
+	logger.Info("flowcast backend scaffold ready; no http server yet")
 	return nil
 }
 

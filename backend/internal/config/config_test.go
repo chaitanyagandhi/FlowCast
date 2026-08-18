@@ -69,6 +69,7 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	require.Equal(t, []string{"http://localhost:3000"}, cfg.Server.CORSOrigins)
 
 	require.Equal(t, testDatabaseURL, cfg.Database.URL)
+	require.Equal(t, 15*time.Second, cfg.Database.ConnectTimeout)
 	require.Equal(t, 10, cfg.Database.MaxConns)
 	require.Equal(t, 2, cfg.Database.MinConns)
 
@@ -197,6 +198,17 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 			name:    "zero embedding dimensions",
 			env:     map[string]string{"FLOWCAST_EMBEDDING_DIMENSIONS": "0"},
 			wantVar: "FLOWCAST_EMBEDDING_DIMENSIONS",
+		},
+		{
+			name:     "max conns above ceiling",
+			env:      map[string]string{"FLOWCAST_DATABASE_MAX_CONNS": "5000"},
+			wantVar:  "FLOWCAST_DATABASE_MAX_CONNS",
+			wantText: "between 1 and 1000",
+		},
+		{
+			name:    "non-positive connect timeout",
+			env:     map[string]string{"FLOWCAST_DATABASE_CONNECT_TIMEOUT": "0s"},
+			wantVar: "FLOWCAST_DATABASE_CONNECT_TIMEOUT",
 		},
 	}
 
