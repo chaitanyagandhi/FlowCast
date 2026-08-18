@@ -1,0 +1,32 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Go
+backend/bin/
+backend/coverage.out
+backend/vendor/
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/coverage/
+
+# IDE
+.idea/
+.vscode/
+.cursor/
+.claude/settings.local.json
+
+# OS
+.DS_Store
+
+# Local data
+data/
+docker-data/
+evaluation/results/local/
+
+# Logs
+*.log
