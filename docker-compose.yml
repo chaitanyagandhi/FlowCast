@@ -1,0 +1,58 @@
+# Local development infrastructure for FlowCast.
+#
+# One PostgreSQL instance (with pgvector) and one Redis instance -- the whole data layer.
+# The backend, frontend, and simulator services are added to this file as they are built.
+#
+#   docker compose up -d
+#   docker compose ps
+#   docker compose down          # stop, keep data
+#   docker compose down -v       # stop, delete data
+
+name: flowcast
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: flowcast-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-flowcast}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flowcast}
+      POSTGRES_DB: ${POSTGRES_DB:-flowcast}
+      # Keep server-side timestamps in UTC to match the application.
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - "${FLOWCAST_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Runs once, only when the data volume is empty.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-flowcast} -d ${POSTGRES_DB:-flowcast}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: flowcast-redis
+    restart: unless-stopped
+    # Append-only persistence: queued jobs should survive a container restart.
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${FLOWCAST_REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  postgres-data:
+  redis-data:
