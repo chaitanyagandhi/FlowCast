@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -30,8 +32,13 @@ func VerifyEmbeddingDimensions(ctx context.Context, pool *pgxpool.Pool, want int
 
 	var got int
 	if err := pool.QueryRow(ctx, query).Scan(&got); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return errors.New("incidents.embedding column not found; are migrations applied?")
+		// No incidents table at all raises undefined_table; the table without the column
+		// yields no rows. Both mean the same thing to an operator.
+		var pgErr *pgconn.PgError
+		if errors.Is(err, pgx.ErrNoRows) ||
+			(errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UndefinedTable) {
+			return errors.New(
+				"incidents.embedding not found; are database migrations applied?")
 		}
 		return fmt.Errorf("reading embedding column width: %w", err)
 	}

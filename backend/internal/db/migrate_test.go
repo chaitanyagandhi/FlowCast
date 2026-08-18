@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
+	"github.com/chaitanyagandhi/flowcast/backend/internal/config"
 	"github.com/chaitanyagandhi/flowcast/backend/migrations"
 )
 
@@ -96,7 +97,25 @@ func TestEmbeddedMigrationsAreValid(t *testing.T) {
 // newTestSchema gives a test its own PostgreSQL schema and a pool whose search_path points
 // at it, so migrations from different tests cannot collide. The schema is dropped when the
 // test finishes.
+//
+// public stays on the path so the extensions installed there resolve.
 func newTestSchema(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	cfg, schema := createTestSchema(t)
+	return connectToSchema(t, cfg, schema+",public")
+}
+
+// newTestSchemaWithoutPublic is newTestSchema with public off the search path, so an
+// unqualified table name cannot silently resolve to the shared public schema. Use it when
+// a test needs to observe what happens with no tables at all.
+func newTestSchemaWithoutPublic(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	cfg, schema := createTestSchema(t)
+	return connectToSchema(t, cfg, schema)
+}
+
+// createTestSchema creates an empty, test-private schema and registers its cleanup.
+func createTestSchema(t *testing.T) (config.DatabaseConfig, string) {
 	t.Helper()
 	cfg := integrationConfig(t) // skips when FLOWCAST_TEST_DATABASE_URL is unset
 	ctx := context.Background()
@@ -122,11 +141,15 @@ func newTestSchema(t *testing.T) *pgxpool.Pool {
 		}
 	})
 
-	// public stays on the path so the extensions installed there resolve.
-	scoped := cfg
-	scoped.URL = withSearchPath(t, cfg.URL, schema+",public")
+	return cfg, schema
+}
 
-	pool, err := Connect(ctx, scoped, discardLogger())
+func connectToSchema(t *testing.T, cfg config.DatabaseConfig, searchPath string) *pgxpool.Pool {
+	t.Helper()
+	scoped := cfg
+	scoped.URL = withSearchPath(t, cfg.URL, searchPath)
+
+	pool, err := Connect(context.Background(), scoped, discardLogger())
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 

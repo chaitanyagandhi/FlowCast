@@ -386,11 +386,13 @@ func TestVerifyEmbeddingDimensions(t *testing.T) {
 }
 
 func TestVerifyEmbeddingDimensionsReportsMissingSchema(t *testing.T) {
-	// A schema with no migrations applied at all.
-	pool := newTestSchema(t)
+	// No migrations applied, and public off the search path so the check cannot resolve
+	// some other database's incidents table by accident.
+	pool := newTestSchemaWithoutPublic(t)
 
 	err := VerifyEmbeddingDimensions(context.Background(), pool, embeddingDimensions)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "migrations")
 }
 
 func TestIncidentTimestampsUseTriggerAndUTC(t *testing.T) {
