@@ -10,10 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/chaitanyagandhi/flowcast/backend/internal/config"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/db"
+	"github.com/chaitanyagandhi/flowcast/backend/internal/server"
 	"github.com/chaitanyagandhi/flowcast/backend/migrations"
 )
 
@@ -22,7 +26,13 @@ import (
 var version = "dev"
 
 func main() {
-	if err := run(); err != nil {
+	// Cancelled on SIGINT or SIGTERM, which is what starts a graceful shutdown. A second
+	// signal restores the default behaviour and kills the process outright, so a hung
+	// shutdown never traps an operator.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := run(ctx); err != nil {
 		// The bootstrap logger is already gone if configuration failed, so report the
 		// problem on stderr and exit non-zero.
 		fmt.Fprintf(os.Stderr, "flowcast: %v\n", err)
@@ -30,9 +40,7 @@ func main() {
 	}
 }
 
-func run() error {
-	ctx := context.Background()
-
+func run(ctx context.Context) error {
 	// Bootstrap logger, used until the configured log level is known.
 	logger := newLogger(slog.LevelInfo)
 	slog.SetDefault(logger)
@@ -77,9 +85,16 @@ func run() error {
 		return err
 	}
 
-	// Redis, HTTP server, and workers are wired in here as the corresponding packages
-	// under internal/ are implemented.
-	logger.Info("flowcast backend scaffold ready; no http server yet")
+	// The router and its middleware land in the next step; until then the server has
+	// nothing to serve and answers 404.
+	handler := http.NotFoundHandler()
+
+	// Blocks until a signal arrives, then drains in-flight requests.
+	if err := server.New(cfg.Server, handler, logger).Run(ctx); err != nil {
+		return err
+	}
+
+	logger.Info("flowcast backend stopped")
 	return nil
 }
 
