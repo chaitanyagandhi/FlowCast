@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/chaitanyagandhi/flowcast/backend/internal/api"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/auth"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/models"
@@ -31,24 +33,33 @@ const RefreshCookiePath = "/api/v1/auth"
 type UserStore interface {
 	CreateTeamWithOwner(ctx context.Context, teamName string, user models.User) (models.Team, models.User, error)
 	FindByEmail(ctx context.Context, email string) (models.User, error)
+	FindByID(ctx context.Context, id uuid.UUID) (models.User, error)
+}
+
+// SessionStore records refresh tokens that have been withdrawn, so a logged-out or
+// already-rotated token stops working before it expires on its own.
+type SessionStore interface {
+	Revoke(ctx context.Context, tokenID uuid.UUID, ttl time.Duration) error
+	IsRevoked(ctx context.Context, tokenID uuid.UUID) (bool, error)
 }
 
 // AuthHandler serves registration and login.
 type AuthHandler struct {
-	users  UserStore
-	hasher *auth.Hasher
-	tokens *auth.Tokens
-	logger *slog.Logger
+	users    UserStore
+	sessions SessionStore
+	hasher   *auth.Hasher
+	tokens   *auth.Tokens
+	logger   *slog.Logger
 	// secureCookies marks the refresh cookie Secure. Off outside production because a
 	// Secure cookie is not sent over plain http, which would break local development.
 	secureCookies bool
 }
 
 // NewAuthHandler builds the registration and login handlers.
-func NewAuthHandler(users UserStore, hasher *auth.Hasher, tokens *auth.Tokens,
-	secureCookies bool, logger *slog.Logger) *AuthHandler {
+func NewAuthHandler(users UserStore, sessions SessionStore, hasher *auth.Hasher,
+	tokens *auth.Tokens, secureCookies bool, logger *slog.Logger) *AuthHandler {
 	return &AuthHandler{
-		users: users, hasher: hasher, tokens: tokens,
+		users: users, sessions: sessions, hasher: hasher, tokens: tokens,
 		secureCookies: secureCookies, logger: logger,
 	}
 }
@@ -247,3 +258,152 @@ func validateRegistration(req registerRequest) error {
 
 // maxEmailLength matches the CHECK constraint on users.email.
 const maxEmailLength = 320
+
+// Refresh exchanges a valid refresh token for a new session.
+//
+// The presented token is rotated, not reused: it is revoked and replaced. A refresh token
+// that leaks is therefore useful only until the legitimate client next refreshes, rather
+// than for its full lifetime.
+func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	// No request body: the credential is the cookie. Requiring a JSON body here would
+	// only give a caller something else to get wrong.
+	cookie, err := r.Cookie(RefreshCookieName)
+	if err != nil {
+		h.rejectSession(w, r, "no refresh cookie")
+		return
+	}
+
+	claims, err := h.tokens.ParseRefresh(cookie.Value)
+	if err != nil {
+		h.clearRefreshCookie(w)
+		h.rejectSession(w, r, "refresh token rejected: "+err.Error())
+		return
+	}
+
+	tokenID, err := uuid.Parse(claims.ID)
+	if err != nil {
+		h.clearRefreshCookie(w)
+		h.rejectSession(w, r, "refresh token has no usable id")
+		return
+	}
+
+	revoked, err := h.sessions.IsRevoked(r.Context(), tokenID)
+	if err != nil {
+		// Failing closed: treating an unreachable Redis as "not revoked" would silently
+		// re-enable every token anyone had logged out of.
+		api.WriteInternalError(w, r, err)
+		return
+	}
+	if revoked {
+		h.clearRefreshCookie(w)
+		h.rejectSession(w, r, "refresh token already used or logged out")
+		return
+	}
+
+	userID, err := claims.UserID()
+	if err != nil {
+		h.clearRefreshCookie(w)
+		h.rejectSession(w, r, "refresh token subject is unusable")
+		return
+	}
+
+	// The token could outlive the account it names, so the user is re-read rather than
+	// trusted from the claims.
+	user, err := h.users.FindByID(r.Context(), userID)
+	switch {
+	case errors.Is(err, models.ErrNotFound):
+		h.clearRefreshCookie(w)
+		h.rejectSession(w, r, "refresh token names a user that no longer exists")
+		return
+	case err != nil:
+		api.WriteInternalError(w, r, err)
+		return
+	}
+
+	// Revoked before the replacement is issued: if anything below fails, the worst case
+	// is a forced re-login, not two live tokens for one session.
+	if err := h.sessions.Revoke(r.Context(), tokenID, h.remainingLife(claims)); err != nil {
+		api.WriteInternalError(w, r, err)
+		return
+	}
+
+	h.logger.InfoContext(r.Context(), "session refreshed",
+		"user_id", user.ID, "team_id", user.TeamID, "request_id", api.RequestID(r.Context()))
+
+	h.respondWithSession(w, r, http.StatusOK, user, models.Team{ID: user.TeamID})
+}
+
+// Logout withdraws the refresh token and clears the cookie.
+//
+// It always succeeds. Reporting whether the token was valid would tell an attacker
+// holding a stale cookie something they cannot otherwise learn, and a client trying to end
+// a session it has already lost should not be handed an error.
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	// Cleared up front, not deferred: a header set after the status line has been
+	// written is discarded, so every early return below would otherwise leave the
+	// browser holding its cookie.
+	h.clearRefreshCookie(w)
+
+	cookie, err := r.Cookie(RefreshCookieName)
+	if err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	claims, err := h.tokens.ParseRefresh(cookie.Value)
+	if err != nil {
+		// Nothing to revoke: an unverifiable token was never a session.
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if tokenID, err := uuid.Parse(claims.ID); err == nil {
+		if err := h.sessions.Revoke(r.Context(), tokenID, h.remainingLife(claims)); err != nil {
+			// The cookie is still cleared, so the browser forgets the session either
+			// way; the operator needs to know the revocation did not stick.
+			h.logger.ErrorContext(r.Context(), "revoking refresh token on logout",
+				"error", err, "request_id", api.RequestID(r.Context()))
+			api.WriteInternalError(w, r, err)
+			return
+		}
+	}
+
+	h.logger.InfoContext(r.Context(), "user logged out",
+		"user_id", claims.Subject, "request_id", api.RequestID(r.Context()))
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// rejectSession answers every unusable-session case identically.
+func (h *AuthHandler) rejectSession(w http.ResponseWriter, r *http.Request, reason string) {
+	h.logger.WarnContext(r.Context(), "refresh rejected",
+		"reason", reason, "request_id", api.RequestID(r.Context()))
+
+	api.WriteError(w, r, http.StatusUnauthorized, api.CodeUnauthorized,
+		"Your session has expired. Please sign in again.")
+}
+
+// remainingLife is how long a revocation entry has to outlive, so it expires with the
+// token rather than lingering.
+func (h *AuthHandler) remainingLife(claims *auth.Claims) time.Duration {
+	if claims.ExpiresAt == nil {
+		return 0
+	}
+	return time.Until(claims.ExpiresAt.Time)
+}
+
+// clearRefreshCookie tells the browser to drop the cookie.
+//
+// Every attribute must match the cookie that was set, or the browser treats this as a
+// different cookie and leaves the original in place.
+func (h *AuthHandler) clearRefreshCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     RefreshCookieName,
+		Value:    "",
+		Path:     RefreshCookiePath,
+		HttpOnly: true,
+		Secure:   h.secureCookies,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
+	})
+}

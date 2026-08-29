@@ -108,12 +108,13 @@ func run(ctx context.Context) error {
 	}
 
 	handler := handlers.NewRouter(handlers.Deps{
-		Config:  cfg.Server,
-		Logger:  logger,
-		Version: version,
-		Users:   repository.NewUserRepository(pool),
-		Hasher:  hasher,
-		Tokens:  tokens,
+		Config:   cfg.Server,
+		Logger:   logger,
+		Version:  version,
+		Users:    repository.NewUserRepository(pool),
+		Sessions: queue.NewSessionStore(redisClient),
+		Hasher:   hasher,
+		Tokens:   tokens,
 		// A Secure cookie is not sent over plain http, which local development uses.
 		SecureCookies: cfg.Env.IsProduction(),
 		// PostgreSQL and Redis are both required for FlowCast to do anything useful,

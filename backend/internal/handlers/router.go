@@ -26,6 +26,8 @@ type Deps struct {
 
 	// Users backs registration and login.
 	Users UserStore
+	// Sessions records withdrawn refresh tokens.
+	Sessions SessionStore
 	// Hasher and Tokens are the auth primitives.
 	Hasher *auth.Hasher
 	Tokens *auth.Tokens
@@ -49,13 +51,15 @@ func NewRouter(deps Deps) http.Handler {
 		Health(deps.Version, DefaultHealthTimeout, deps.Logger, deps.HealthChecks...))
 
 	mux.Route("/api/v1", func(r chi.Router) {
-		if deps.Users != nil {
-			authHandler := NewAuthHandler(
-				deps.Users, deps.Hasher, deps.Tokens, deps.SecureCookies, deps.Logger)
+		if deps.Users != nil && deps.Sessions != nil {
+			authHandler := NewAuthHandler(deps.Users, deps.Sessions,
+				deps.Hasher, deps.Tokens, deps.SecureCookies, deps.Logger)
 
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/register", authHandler.Register)
 				r.Post("/login", authHandler.Login)
+				r.Post("/refresh", authHandler.Refresh)
+				r.Post("/logout", authHandler.Logout)
 			})
 		}
 	})

@@ -73,7 +73,51 @@ func (f *fakeUserStore) FindByEmail(_ context.Context, email string) (models.Use
 	return user, nil
 }
 
+func (f *fakeUserStore) FindByID(_ context.Context, id uuid.UUID) (models.User, error) {
+	if f.findErr != nil {
+		return models.User{}, f.findErr
+	}
+	for _, user := range f.byEmail {
+		if user.ID == id {
+			return user, nil
+		}
+	}
+	return models.User{}, models.ErrNotFound
+}
+
+// fakeSessionStore is an in-memory revocation store. It ignores TTLs: the tests care
+// about whether a token was withdrawn, not when Redis would forget it.
+type fakeSessionStore struct {
+	revoked map[uuid.UUID]time.Duration
+	err     error
+}
+
+func newFakeSessions() *fakeSessionStore {
+	return &fakeSessionStore{revoked: map[uuid.UUID]time.Duration{}}
+}
+
+func (f *fakeSessionStore) Revoke(_ context.Context, tokenID uuid.UUID, ttl time.Duration) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.revoked[tokenID] = ttl
+	return nil
+}
+
+func (f *fakeSessionStore) IsRevoked(_ context.Context, tokenID uuid.UUID) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	_, found := f.revoked[tokenID]
+	return found, nil
+}
+
 func authRouter(t *testing.T, store handlers.UserStore) http.Handler {
+	t.Helper()
+	return authRouterWithSessions(t, store, newFakeSessions())
+}
+
+func authRouterWithSessions(t *testing.T, store handlers.UserStore, sessions handlers.SessionStore) http.Handler {
 	t.Helper()
 
 	hasher, err := auth.NewHasher(bcrypt.MinCost)
@@ -87,12 +131,13 @@ func authRouter(t *testing.T, store handlers.UserStore) http.Handler {
 	require.NoError(t, err)
 
 	return handlers.NewRouter(handlers.Deps{
-		Config:  testServerConfig(),
-		Logger:  slog.New(slog.DiscardHandler),
-		Version: "test",
-		Users:   store,
-		Hasher:  hasher,
-		Tokens:  tokens,
+		Config:   testServerConfig(),
+		Logger:   slog.New(slog.DiscardHandler),
+		Version:  "test",
+		Users:    store,
+		Sessions: sessions,
+		Hasher:   hasher,
+		Tokens:   tokens,
 	})
 }
 
