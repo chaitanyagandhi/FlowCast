@@ -10,10 +10,6 @@
 package depsref
 
 import (
-	// HTTP routing and CORS.
-	_ "github.com/go-chi/chi/v5"
-	_ "github.com/go-chi/cors"
-
 	// pgvector support for embedding columns.
 	_ "github.com/pgvector/pgvector-go"
 
@@ -23,9 +19,6 @@ import (
 	// Authentication: JWT signing and bcrypt password hashing.
 	_ "github.com/golang-jwt/jwt/v5"
 	_ "golang.org/x/crypto/bcrypt"
-
-	// Public identifiers.
-	_ "github.com/google/uuid"
 
 	// AI provider SDK.
 	_ "github.com/openai/openai-go/v3"

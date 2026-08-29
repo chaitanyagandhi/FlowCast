@@ -10,13 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/chaitanyagandhi/flowcast/backend/internal/config"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/db"
+	"github.com/chaitanyagandhi/flowcast/backend/internal/handlers"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/server"
 	"github.com/chaitanyagandhi/flowcast/backend/migrations"
 )
@@ -85,9 +85,7 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	// The router and its middleware land in the next step; until then the server has
-	// nothing to serve and answers 404.
-	handler := http.NotFoundHandler()
+	handler := handlers.NewRouter(cfg.Server, logger)
 
 	// Blocks until a signal arrives, then drains in-flight requests.
 	if err := server.New(cfg.Server, handler, logger).Run(ctx); err != nil {
