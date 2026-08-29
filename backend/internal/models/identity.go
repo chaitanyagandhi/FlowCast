@@ -88,7 +88,7 @@ func (u *User) Validate() error {
 
 	email := v.require("email", u.Email)
 	v.maxLen("email", email, maxEmailLen)
-	if email != "" && !looksLikeEmail(email) {
+	if email != "" && !ValidEmail(email) {
 		v.add("email", "must be a valid email address")
 	}
 
@@ -124,9 +124,10 @@ func (i *Integration) Validate() error {
 // MinWebhookSecretLen matches the CHECK constraint on integrations.webhook_secret.
 const MinWebhookSecretLen = 16
 
-// looksLikeEmail is a deliberately loose shape check: exactly one @, with something on
-// either side and a dot in the domain. Anything stricter rejects valid addresses.
-func looksLikeEmail(s string) bool {
+// ValidEmail is a deliberately loose shape check: exactly one @, with something on either
+// side and a dot in the domain. Anything stricter rejects addresses that genuinely work.
+// Deliverability is proven by sending mail, not by a regex.
+func ValidEmail(s string) bool {
 	at := -1
 	for i, r := range s {
 		if r == '@' {

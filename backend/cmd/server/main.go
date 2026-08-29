@@ -14,10 +14,12 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/chaitanyagandhi/flowcast/backend/internal/auth"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/config"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/db"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/handlers"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/queue"
+	"github.com/chaitanyagandhi/flowcast/backend/internal/repository"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/server"
 	"github.com/chaitanyagandhi/flowcast/backend/migrations"
 )
@@ -96,10 +98,24 @@ func run(ctx context.Context) error {
 		}
 	}()
 
+	hasher, err := auth.NewHasher(cfg.Auth.BcryptCost)
+	if err != nil {
+		return fmt.Errorf("configuring password hasher: %w", err)
+	}
+	tokens, err := auth.NewTokens(cfg.Auth)
+	if err != nil {
+		return fmt.Errorf("configuring tokens: %w", err)
+	}
+
 	handler := handlers.NewRouter(handlers.Deps{
 		Config:  cfg.Server,
 		Logger:  logger,
 		Version: version,
+		Users:   repository.NewUserRepository(pool),
+		Hasher:  hasher,
+		Tokens:  tokens,
+		// A Secure cookie is not sent over plain http, which local development uses.
+		SecureCookies: cfg.Env.IsProduction(),
 		// PostgreSQL and Redis are both required for FlowCast to do anything useful,
 		// so either being down makes the service unhealthy rather than degraded.
 		HealthChecks: []handlers.Check{

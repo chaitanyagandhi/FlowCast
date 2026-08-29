@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/chaitanyagandhi/flowcast/backend/internal/api"
+	"github.com/chaitanyagandhi/flowcast/backend/internal/auth"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/config"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/middleware"
 )
@@ -22,6 +23,15 @@ type Deps struct {
 
 	// HealthChecks are the dependency probes behind GET /health.
 	HealthChecks []Check
+
+	// Users backs registration and login.
+	Users UserStore
+	// Hasher and Tokens are the auth primitives.
+	Hasher *auth.Hasher
+	Tokens *auth.Tokens
+	// SecureCookies marks the refresh cookie Secure. True in production; false locally,
+	// where a Secure cookie would not be sent over plain http.
+	SecureCookies bool
 }
 
 // NewRouter builds the HTTP handler for the whole API.
@@ -38,7 +48,17 @@ func NewRouter(deps Deps) http.Handler {
 	mux.Method(http.MethodGet, "/health",
 		Health(deps.Version, DefaultHealthTimeout, deps.Logger, deps.HealthChecks...))
 
-	// Routes are registered here as the handlers for them land.
+	mux.Route("/api/v1", func(r chi.Router) {
+		if deps.Users != nil {
+			authHandler := NewAuthHandler(
+				deps.Users, deps.Hasher, deps.Tokens, deps.SecureCookies, deps.Logger)
+
+			r.Route("/auth", func(r chi.Router) {
+				r.Post("/register", authHandler.Register)
+				r.Post("/login", authHandler.Login)
+			})
+		}
+	})
 
 	return withMiddleware(mux, deps.Config, deps.Logger)
 }
