@@ -16,10 +16,6 @@ import (
 	// Redis client for queues and idempotency.
 	_ "github.com/redis/go-redis/v9"
 
-	// Authentication: JWT signing and bcrypt password hashing.
-	_ "github.com/golang-jwt/jwt/v5"
-	_ "golang.org/x/crypto/bcrypt"
-
 	// AI provider SDK.
 	_ "github.com/openai/openai-go/v3"
 )

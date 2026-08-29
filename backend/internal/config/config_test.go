@@ -78,6 +78,7 @@ func TestLoadAppliesDefaults(t *testing.T) {
 
 	require.Equal(t, 15*time.Minute, cfg.Auth.AccessTokenTTL)
 	require.Equal(t, 720*time.Hour, cfg.Auth.RefreshTokenTTL)
+	require.Equal(t, config.DefaultBcryptCost, cfg.Auth.BcryptCost)
 
 	// The mock provider is the default so the stack runs without an API key.
 	require.Equal(t, config.ProviderMock, cfg.AI.Provider)
@@ -217,6 +218,17 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 			name:    "non-positive redis connect timeout",
 			env:     map[string]string{"FLOWCAST_REDIS_CONNECT_TIMEOUT": "0s"},
 			wantVar: "FLOWCAST_REDIS_CONNECT_TIMEOUT",
+		},
+		{
+			name:     "bcrypt cost below bcrypt's floor",
+			env:      map[string]string{"FLOWCAST_BCRYPT_COST": "3"},
+			wantVar:  "FLOWCAST_BCRYPT_COST",
+			wantText: "between 4 and 31",
+		},
+		{
+			name:    "bcrypt cost above bcrypt's ceiling",
+			env:     map[string]string{"FLOWCAST_BCRYPT_COST": "32"},
+			wantVar: "FLOWCAST_BCRYPT_COST",
 		},
 	}
 

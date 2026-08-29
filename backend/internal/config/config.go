@@ -12,6 +12,14 @@ import (
 // hash output add no security, so anything below this is a misconfiguration.
 const minJWTSecretLength = 32
 
+// Bcrypt work factor bounds. The default is above bcrypt's own default of 10 because
+// hardware has moved on; the range is what the algorithm itself accepts.
+const (
+	DefaultBcryptCost = 12
+	MinBcryptCost     = 4
+	MaxBcryptCost     = 31
+)
+
 // maxDatabaseConns is an upper bound on the pool size. It is far above anything this
 // system needs and exists to catch a fat-fingered value before pgx has to widen it to an
 // int32.
@@ -60,11 +68,14 @@ type RedisConfig struct {
 	ConnectTimeout time.Duration
 }
 
-// AuthConfig holds the JWT signing key and token lifetimes.
+// AuthConfig holds the JWT signing key, token lifetimes, and password hashing cost.
 type AuthConfig struct {
 	JWTSecret       string
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
+	// BcryptCost is the work factor for password hashing. Configurable so CI can drop
+	// it; production should leave it at the default.
+	BcryptCost int
 }
 
 // AIConfig is the single place model names and AI credentials enter the process. No other
@@ -137,6 +148,7 @@ func Load() (*Config, error) {
 			JWTSecret:       r.requiredStr("FLOWCAST_JWT_SECRET"),
 			AccessTokenTTL:  r.duration("FLOWCAST_ACCESS_TOKEN_TTL", 15*time.Minute),
 			RefreshTokenTTL: r.duration("FLOWCAST_REFRESH_TOKEN_TTL", 720*time.Hour),
+			BcryptCost:      r.intVal("FLOWCAST_BCRYPT_COST", DefaultBcryptCost),
 		},
 		AI: AIConfig{
 			Provider:            AIProvider(r.str("FLOWCAST_AI_PROVIDER", string(ProviderMock))),
@@ -229,6 +241,11 @@ func (c *Config) validateAuth(r *reader) {
 		c.Auth.AccessTokenTTL >= c.Auth.RefreshTokenTTL {
 		r.add("FLOWCAST_ACCESS_TOKEN_TTL",
 			"must be shorter than FLOWCAST_REFRESH_TOKEN_TTL")
+	}
+	if c.Auth.BcryptCost < MinBcryptCost || c.Auth.BcryptCost > MaxBcryptCost {
+		r.add("FLOWCAST_BCRYPT_COST", fmt.Sprintf(
+			"must be between %d and %d; got %d",
+			MinBcryptCost, MaxBcryptCost, c.Auth.BcryptCost))
 	}
 }
 

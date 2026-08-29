@@ -60,6 +60,7 @@ func (a AuthConfig) LogValue() slog.Value {
 		slog.String("jwt_secret", secretState(a.JWTSecret)),
 		slog.Duration("access_token_ttl", a.AccessTokenTTL),
 		slog.Duration("refresh_token_ttl", a.RefreshTokenTTL),
+		slog.Int("bcrypt_cost", a.BcryptCost),
 	)
 }
 
