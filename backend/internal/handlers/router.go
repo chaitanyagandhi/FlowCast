@@ -34,6 +34,11 @@ type Deps struct {
 	// SecureCookies marks the refresh cookie Secure. True in production; false locally,
 	// where a Secure cookie would not be sent over plain http.
 	SecureCookies bool
+
+	// ProtectedRoutes are mounted behind the authentication middleware. It is a map so
+	// the incident, postmortem, and simulation handlers can be added independently as
+	// they land, without this function growing a parameter per feature.
+	ProtectedRoutes map[string]http.Handler
 }
 
 // NewRouter builds the HTTP handler for the whole API.
@@ -55,6 +60,7 @@ func NewRouter(deps Deps) http.Handler {
 			authHandler := NewAuthHandler(deps.Users, deps.Sessions,
 				deps.Hasher, deps.Tokens, deps.SecureCookies, deps.Logger)
 
+			// Public: these are how a caller obtains a token in the first place.
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/register", authHandler.Register)
 				r.Post("/login", authHandler.Login)
@@ -62,6 +68,20 @@ func NewRouter(deps Deps) http.Handler {
 				r.Post("/logout", authHandler.Logout)
 			})
 		}
+
+		// Everything below requires a valid access token, and runs with the caller's
+		// team already fixed by the middleware. Routes are added here as they land, so
+		// a new endpoint is protected by default rather than by remembering to say so.
+		r.Group(func(r chi.Router) {
+			if deps.Tokens == nil {
+				return
+			}
+			r.Use(middleware.Authenticate(deps.Tokens, deps.Logger))
+
+			for path, handler := range deps.ProtectedRoutes {
+				r.Mount(path, handler)
+			}
+		})
 	})
 
 	return withMiddleware(mux, deps.Config, deps.Logger)

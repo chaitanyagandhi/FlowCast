@@ -18,6 +18,10 @@ const (
 	CodeBadRequest       ErrorCode = "bad_request"
 	CodeValidationFailed ErrorCode = "validation_failed"
 	CodeUnauthorized     ErrorCode = "unauthorized"
+	// CodeTokenExpired is separate from CodeUnauthorized so a client can tell "refresh
+	// and retry" from "sign in again". It reveals nothing: the caller already holds the
+	// token and can read its expiry.
+	CodeTokenExpired     ErrorCode = "token_expired"
 	CodeForbidden        ErrorCode = "forbidden"
 	CodeNotFound         ErrorCode = "not_found"
 	CodeMethodNotAllowed ErrorCode = "method_not_allowed"
