@@ -17,6 +17,7 @@ import (
 	"github.com/chaitanyagandhi/flowcast/backend/internal/config"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/db"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/handlers"
+	"github.com/chaitanyagandhi/flowcast/backend/internal/queue"
 	"github.com/chaitanyagandhi/flowcast/backend/internal/server"
 	"github.com/chaitanyagandhi/flowcast/backend/migrations"
 )
@@ -85,7 +86,31 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	handler := handlers.NewRouter(cfg.Server, logger)
+	redisClient, err := queue.Connect(ctx, cfg.Redis, logger)
+	if err != nil {
+		return fmt.Errorf("connecting to redis: %w", err)
+	}
+	defer func() {
+		if err := redisClient.Close(); err != nil {
+			logger.Error("closing redis client", "error", err)
+		}
+	}()
+
+	handler := handlers.NewRouter(handlers.Deps{
+		Config:  cfg.Server,
+		Logger:  logger,
+		Version: version,
+		// PostgreSQL and Redis are both required for FlowCast to do anything useful,
+		// so either being down makes the service unhealthy rather than degraded.
+		HealthChecks: []handlers.Check{
+			{Name: "postgres", Probe: func(ctx context.Context) error {
+				return pool.Ping(ctx)
+			}},
+			{Name: "redis", Probe: func(ctx context.Context) error {
+				return queue.Ping(ctx, redisClient)
+			}},
+		},
+	})
 
 	// Blocks until a signal arrives, then drains in-flight requests.
 	if err := server.New(cfg.Server, handler, logger).Run(ctx); err != nil {

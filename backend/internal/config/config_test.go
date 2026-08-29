@@ -73,6 +73,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	require.Equal(t, 10, cfg.Database.MaxConns)
 	require.Equal(t, 2, cfg.Database.MinConns)
 
+	require.Equal(t, testRedisURL, cfg.Redis.URL)
+	require.Equal(t, 10*time.Second, cfg.Redis.ConnectTimeout)
+
 	require.Equal(t, 15*time.Minute, cfg.Auth.AccessTokenTTL)
 	require.Equal(t, 720*time.Hour, cfg.Auth.RefreshTokenTTL)
 
@@ -209,6 +212,11 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 			name:    "non-positive connect timeout",
 			env:     map[string]string{"FLOWCAST_DATABASE_CONNECT_TIMEOUT": "0s"},
 			wantVar: "FLOWCAST_DATABASE_CONNECT_TIMEOUT",
+		},
+		{
+			name:    "non-positive redis connect timeout",
+			env:     map[string]string{"FLOWCAST_REDIS_CONNECT_TIMEOUT": "0s"},
+			wantVar: "FLOWCAST_REDIS_CONNECT_TIMEOUT",
 		},
 	}
 

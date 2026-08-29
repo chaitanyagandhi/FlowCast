@@ -50,6 +50,7 @@ func (d DatabaseConfig) LogValue() slog.Value {
 func (r RedisConfig) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.String("url", redactURL(r.URL)),
+		slog.Duration("connect_timeout", r.ConnectTimeout),
 	)
 }
 

@@ -11,8 +11,21 @@ import (
 	"github.com/chaitanyagandhi/flowcast/backend/internal/middleware"
 )
 
+// Deps is everything the API needs to serve requests. It grows as handlers land, which is
+// why it is a struct rather than a widening parameter list.
+type Deps struct {
+	Config config.ServerConfig
+	Logger *slog.Logger
+
+	// Version is reported by the health endpoint so a deployment can be identified.
+	Version string
+
+	// HealthChecks are the dependency probes behind GET /health.
+	HealthChecks []Check
+}
+
 // NewRouter builds the HTTP handler for the whole API.
-func NewRouter(cfg config.ServerConfig, logger *slog.Logger) http.Handler {
+func NewRouter(deps Deps) http.Handler {
 	mux := chi.NewRouter()
 
 	// chi answers unmatched routes and methods with plain text by default. Every
@@ -20,9 +33,14 @@ func NewRouter(cfg config.ServerConfig, logger *slog.Logger) http.Handler {
 	mux.NotFound(notFound)
 	mux.MethodNotAllowed(methodNotAllowed)
 
+	// Deliberately outside /api/v1 and outside authentication: whatever polls this is
+	// an orchestrator, not a logged-in user.
+	mux.Method(http.MethodGet, "/health",
+		Health(deps.Version, DefaultHealthTimeout, deps.Logger, deps.HealthChecks...))
+
 	// Routes are registered here as the handlers for them land.
 
-	return withMiddleware(mux, cfg, logger)
+	return withMiddleware(mux, deps.Config, deps.Logger)
 }
 
 // withMiddleware wraps the router in the global middleware chain.

@@ -55,6 +55,9 @@ type DatabaseConfig struct {
 // RedisConfig describes the Redis connection used for queues and idempotency.
 type RedisConfig struct {
 	URL string
+	// ConnectTimeout bounds the startup connectivity check, which retries while Redis
+	// is still booting.
+	ConnectTimeout time.Duration
 }
 
 // AuthConfig holds the JWT signing key and token lifetimes.
@@ -127,7 +130,8 @@ func Load() (*Config, error) {
 			MaxConnIdleTime: r.duration("FLOWCAST_DATABASE_MAX_CONN_IDLE_TIME", 30*time.Minute),
 		},
 		Redis: RedisConfig{
-			URL: r.requiredStr("FLOWCAST_REDIS_URL"),
+			URL:            r.requiredStr("FLOWCAST_REDIS_URL"),
+			ConnectTimeout: r.duration("FLOWCAST_REDIS_CONNECT_TIMEOUT", 10*time.Second),
 		},
 		Auth: AuthConfig{
 			JWTSecret:       r.requiredStr("FLOWCAST_JWT_SECRET"),
@@ -198,6 +202,9 @@ func (c *Config) validateDatabase(r *reader) {
 }
 
 func (c *Config) validateRedis(r *reader) {
+	if c.Redis.ConnectTimeout <= 0 {
+		r.add("FLOWCAST_REDIS_CONNECT_TIMEOUT", "must be a positive duration")
+	}
 	if c.Redis.URL == "" {
 		return
 	}

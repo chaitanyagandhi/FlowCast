@@ -15,13 +15,22 @@ import (
 	"github.com/chaitanyagandhi/flowcast/backend/internal/handlers"
 )
 
-func testRouter(t *testing.T) http.Handler {
-	t.Helper()
-	return handlers.NewRouter(config.ServerConfig{
+// testServerConfig is the server configuration shared by the router and health tests.
+func testServerConfig() config.ServerConfig {
+	return config.ServerConfig{
 		Port:            8080,
 		ShutdownTimeout: time.Second,
 		CORSOrigins:     []string{"http://localhost:3000"},
-	}, slog.New(slog.DiscardHandler))
+	}
+}
+
+func testRouter(t *testing.T) http.Handler {
+	t.Helper()
+	return handlers.NewRouter(handlers.Deps{
+		Config:  testServerConfig(),
+		Logger:  slog.New(slog.DiscardHandler),
+		Version: "test",
+	})
 }
 
 func do(t *testing.T, router http.Handler, req *http.Request) *httptest.ResponseRecorder {
